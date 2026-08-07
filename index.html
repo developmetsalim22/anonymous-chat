@@ -1013,8 +1013,7 @@
             const messagesRef = window.firebaseCollection(window.firebaseDB, 'messages');
             const q = window.firebaseQuery(
                 messagesRef,
-                window.firebaseWhere('matchId', '==', matchId),
-                window.firebaseOrderBy('timestamp', 'asc')
+                window.firebaseWhere('matchId', '==', matchId)
             );
             
             messagesUnsubscribe = window.firebaseOnSnapshot(q, (snapshot) => {
@@ -1022,6 +1021,9 @@
                 snapshot.forEach(doc => {
                     messages.push({ id: doc.id, ...doc.data() });
                 });
+                
+                // Sort by timestamp in JavaScript to avoid index requirement
+                messages.sort((a, b) => a.timestamp - b.timestamp);
                 
                 console.log('Messages received:', messages.length);
                 renderMessages(messages);
