@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Users collection - allow all for anonymous chat
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+    
+    // Queue collection - allow all for matchmaking
+    match /queue/{userId} {
+      allow read, write, delete: if true;
+    }
+    
+    // Matches collection - allow all for anonymous chat
+    match /matches/{matchId} {
+      allow read, create, update, delete: if true;
+    }
+    
+    // Messages collection - allow all for anonymous chat
+    match /messages/{messageId} {
+      allow read, create, update, delete: if true;
+    }
+    
+    // Presence collection - allow all for online counter
+    match /presence/{userId} {
+      allow read, write, delete: if true;
+    }
+  }
+}
