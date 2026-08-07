@@ -778,6 +778,7 @@
             // Update chat header to show searching
             document.getElementById('partnerName').textContent = 'Searching...';
             document.getElementById('partnerStatus').textContent = 'Looking for partner';
+            document.getElementById('partnerOnlineDot').style.background = '#ffc107';
             
             try {
                 // Add to queue
@@ -945,6 +946,7 @@
                 
                 // Update UI
                 updatePartnerInfo(stranger);
+                document.getElementById('partnerOnlineDot').style.background = '#22c55e';
                 listenForMessages(matchId);
                 listenForPartnerPresence(stranger.userId);
                 
@@ -988,6 +990,7 @@
                     
                     // Update UI
                     updatePartnerInfo(partner);
+                    document.getElementById('partnerOnlineDot').style.background = '#22c55e';
                     listenForMessages(matchData.id);
                     listenForPartnerPresence(partnerId);
                     
@@ -1005,6 +1008,7 @@
         function updatePartnerInfo(partner) {
             console.log('Updating partner info:', partner.displayName);
             document.getElementById('partnerName').textContent = partner.displayName || 'Stranger';
+            document.getElementById('partnerStatus').textContent = 'Connected';
         }
         
         // Listen for Messages
@@ -1120,9 +1124,12 @@
             const input = document.getElementById('messageInput');
             const text = input.value.trim();
             
-            if (!text || !currentMatch) return;
+            if (!text || !currentMatch) {
+                console.log('Cannot send message - text:', !!text, 'match:', !!currentMatch);
+                return;
+            }
             
-            console.log('Sending message');
+            console.log('Sending message to match:', currentMatch.id);
             
             try {
                 const message = {
@@ -1139,11 +1146,11 @@
                     message
                 );
                 
-                console.log('Message sent');
+                console.log('Message sent successfully');
                 input.value = '';
             } catch (error) {
                 console.error('Error sending message:', error);
-                showToast('Failed to send message', 'error');
+                showToast('Failed to send message: ' + error.message, 'error');
             }
         }
         
@@ -1258,6 +1265,8 @@
         function nextChat() {
             console.log('Next clicked');
             if (currentMatch) {
+                const partnerName = currentMatch.partner?.displayName || 'Stranger';
+                showToast(`${partnerName} disconnected`, 'info');
                 endCurrentMatch();
             }
             // Stay on chat screen and search in background
@@ -1268,6 +1277,8 @@
         function stopChat() {
             console.log('Stop clicked');
             if (currentMatch) {
+                const partnerName = currentMatch.partner?.displayName || 'Stranger';
+                showToast(`${partnerName} disconnected`, 'info');
                 endCurrentMatch();
             }
             showProfileScreen();
