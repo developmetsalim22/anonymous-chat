@@ -891,8 +891,8 @@
                 console.log('Queue check found:', snapshot.size, 'users');
                 
                 if (snapshot.empty) {
-                    // Only one user online
-                    document.querySelector('#waitingScreen h2').textContent = 'Waiting for another user...';
+                    // Only one user online - keep searching
+                    console.log('No other users in queue, waiting...');
                     return;
                 }
                 
@@ -1013,7 +1013,7 @@
                 console.log('Queue snapshot received, size:', snapshot.size);
                 
                 if (snapshot.empty) {
-                    document.querySelector('#waitingScreen h2').textContent = 'Waiting for another user...';
+                    console.log('No users in queue listener, waiting...');
                     return;
                 }
                 
