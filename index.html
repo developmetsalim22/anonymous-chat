@@ -476,6 +476,16 @@
                 </div>
                 
                 <div class="mb-4">
+                    <div class="text-center mb-3">
+                        <div id="profilePreview" class="rounded-circle bg-gradient d-flex align-items-center justify-content-center mx-auto mb-2" 
+                             style="width: 100px; height: 100px; background: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%); cursor: pointer; overflow: hidden;">
+                            <i class="bi bi-camera fs-2 text-white" id="cameraIcon"></i>
+                            <img id="profileImage" src="" alt="" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+                        </div>
+                        <input type="file" id="profilePhotoInput" accept="image/*" style="display: none;">
+                        <p class="small text-secondary mb-0">Click to add profile photo</p>
+                    </div>
+                    
                     <div class="input-group">
                         <span class="input-group-text bg-transparent border-secondary text-white">
                             <i class="bi bi-person"></i>
@@ -679,6 +689,7 @@
         let recordingInterval = null;
         let mediaRecorder = null;
         let audioChunks = [];
+        let profilePhotoDataUrl = null;
         
         // Owner ID - Replace with your actual user ID from localStorage after first login
         let OWNER_ID = localStorage.getItem('owner_id') || null;
@@ -765,6 +776,13 @@
                 sendTypingIndicator();
             });
             
+            // Profile photo upload
+            document.getElementById('profilePreview').addEventListener('click', () => {
+                document.getElementById('profilePhotoInput').click();
+            });
+            
+            document.getElementById('profilePhotoInput').addEventListener('change', handleProfilePhoto);
+            
             // Voice message
             document.getElementById('voiceBtn').addEventListener('click', startRecording);
             document.getElementById('stopRecordingBtn').addEventListener('click', stopRecording);
@@ -821,7 +839,8 @@
                 createdAt: Date.now(),
                 lastSeen: Date.now(),
                 currentMatch: null,
-                isOwner: isOwner
+                isOwner: isOwner,
+                profilePhoto: profilePhotoDataUrl || null
             };
 
             try {
@@ -854,6 +873,23 @@
         // Generate User ID
         function generateUserId() {
             return 'user_' + Math.random().toString(36).substr(2, 9) + Date.now();
+        }
+        
+        // Handle Profile Photo Upload
+        function handleProfilePhoto(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    profilePhotoDataUrl = e.target.result;
+                    const img = document.getElementById('profileImage');
+                    const icon = document.getElementById('cameraIcon');
+                    img.src = profilePhotoDataUrl;
+                    img.style.display = 'block';
+                    icon.style.display = 'none';
+                };
+                reader.readAsDataURL(file);
+            }
         }
         
         // Start Searching in Background
@@ -1020,6 +1056,13 @@
                         ownerBadge.classList.add('d-none');
                     }
                     
+                    // Show partner profile photo if available
+                    if (partner.profilePhoto) {
+                        partnerProfile.innerHTML = `<img src="${partner.profilePhoto}" alt="${partner.displayName}" style="width: 100%; height: 100%; object-fit: cover;">`;
+                    } else {
+                        partnerProfile.innerHTML = '<i class="bi bi-person-fill fs-4 text-white"></i>';
+                    }
+                    
                     listenForMessages(matchData.id);
                     
                     // Remove from queue
@@ -1086,6 +1129,13 @@
                 } else {
                     partnerProfile.classList.remove('owner-profile');
                     ownerBadge.classList.add('d-none');
+                }
+                
+                // Show partner profile photo if available
+                if (partner.profilePhoto) {
+                    partnerProfile.innerHTML = `<img src="${partner.profilePhoto}" alt="${partner.displayName}" style="width: 100%; height: 100%; object-fit: cover;">`;
+                } else {
+                    partnerProfile.innerHTML = '<i class="bi bi-person-fill fs-4 text-white"></i>';
                 }
                 
                 listenForMessages(matchId);
