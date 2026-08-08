@@ -26,5 +26,10 @@ service cloud.firestore {
     match /presence/{userId} {
       allow read, write, delete: if true;
     }
+    
+    // Admin collection - allow all for admin credentials
+    match /admin/{document} {
+      allow read, write: if true;
+    }
   }
 }
