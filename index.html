@@ -627,15 +627,21 @@
         
         // Initialize App
         function initApp() {
-            console.log('Initializing app...');
+            console.log('=== INITIALIZING APP ===');
             
             // Check for existing user
             const savedUser = localStorage.getItem('anonchat_user');
             if (savedUser) {
-                currentUser = JSON.parse(savedUser);
-                console.log('Found saved user:', currentUser.id);
-                showChatScreen();
-                startSearchingInBackground();
+                try {
+                    currentUser = JSON.parse(savedUser);
+                    console.log('✓ Found saved user:', currentUser.id, currentUser.displayName);
+                    showChatScreen();
+                    startSearchingInBackground();
+                } catch (e) {
+                    console.error('Error parsing saved user:', e);
+                    localStorage.removeItem('anonchat_user');
+                    showProfileScreen();
+                }
             } else {
                 console.log('No saved user, showing profile screen');
                 showProfileScreen();
@@ -643,11 +649,15 @@
             
             setupEventListeners();
             startOnlineCountListener();
-            startPresenceSystem();
             
             // Handle online/offline status
             window.addEventListener('online', handleReconnect);
             window.addEventListener('offline', handleDisconnect);
+            
+            // Hide splash screen
+            setTimeout(() => {
+                document.getElementById('splashScreen').classList.add('hidden');
+            }, 1000);
         }
         
         // Screen Management
@@ -720,43 +730,45 @@
         
         // Create Profile
         async function createProfile() {
-            console.log('Creating profile...');
+            console.log('=== CREATING PROFILE ===');
             const displayName = document.getElementById('displayName').value.trim();
             
             if (!displayName) {
                 showToast('Please enter a display name', 'error');
                 return;
             }
+
+            const userId = generateUserId();
+            console.log('Generated user ID:', userId);
             
+            const user = {
+                id: userId,
+                displayName: displayName,
+                status: 'offline',
+                createdAt: Date.now(),
+                lastSeen: Date.now(),
+                currentMatch: null
+            };
+
             try {
-                const userId = generateUserId();
-                console.log('Generated user ID:', userId);
-                
-                const user = {
-                    id: userId,
-                    displayName,
-                    status: 'online',
-                    createdAt: Date.now(),
-                    lastSeen: Date.now()
-                };
-                
-                // Save to Firestore
+                console.log('Saving user to Firestore...');
                 await window.firebaseSetDoc(
                     window.firebaseDoc(window.firebaseDB, 'users', userId),
                     user
                 );
-                console.log('User saved to Firestore');
+                console.log('✓ User saved to Firestore');
                 
                 currentUser = user;
                 localStorage.setItem('anonchat_user', JSON.stringify(user));
-                console.log('User saved to localStorage');
+                console.log('✓ User saved to localStorage');
                 
-                showToast('Profile created successfully!', 'success');
+                showToast('Profile created!', 'success');
                 showChatScreen();
                 startSearchingInBackground();
             } catch (error) {
-                console.error('Error creating profile:', error);
-                showToast('Failed to create profile', 'error');
+                console.error('❌ ERROR creating profile:', error);
+                showToast('Error: ' + error.message, 'error');
+                alert('Failed to create profile. Check console for details.');
             }
         }
         
@@ -768,14 +780,15 @@
         // Start Searching in Background
         async function startSearchingInBackground() {
             if (isSearching) {
-                console.log('Already searching in background, skipping');
+                console.log('Already searching');
                 return;
             }
             
             isSearching = true;
-            console.log('Starting background search for user:', currentUser.id);
+            console.log('=== START SEARCHING ===');
+            console.log('User:', currentUser.id, currentUser.displayName);
             
-            // Update chat header to show searching
+            // Update UI
             document.getElementById('partnerName').textContent = 'Searching...';
             document.getElementById('partnerStatus').textContent = 'Looking for partner';
             document.getElementById('partnerOnlineDot').style.background = '#ffc107';
@@ -787,24 +800,20 @@
                     {
                         userId: currentUser.id,
                         displayName: currentUser.displayName,
-                        timestamp: Date.now(),
-                        status: 'searching'
+                        timestamp: Date.now()
                     }
                 );
-                console.log('User joined queue');
+                console.log('✓ Added to queue');
                 
-                // Listen for being matched (watch currentMatch field)
-                listenForBeingMatched();
+                // Listen for match on user document
+                listenForMatchOnUserDoc();
                 
-                // Start periodic check for matches
-                matchCheckInterval = setInterval(findAndMatch, 1500);
+                // Start checking for partners
+                checkForPartner();
+                matchCheckInterval = setInterval(checkForPartner, 2000);
                 
-                // Immediately check
-                await findAndMatch();
-                
-                console.log('Background searching...');
             } catch (error) {
-                console.error('Error starting background search:', error);
+                console.error('ERROR starting search:', error);
                 isSearching = false;
             }
         }
@@ -858,152 +867,69 @@
             }
         }
         
-        // Find and match with a stranger
-        async function findAndMatch() {
+        // Check for partner in queue
+        async function checkForPartner() {
             if (currentMatch) {
                 clearInterval(matchCheckInterval);
                 return;
             }
             
             try {
-                console.log('=== Looking for partner ===');
-                console.log('Current user ID:', currentUser.id);
+                console.log('--- Checking for partner ---');
                 
-                // Get all users in queue except self (without orderBy to avoid index requirement)
                 const queueRef = window.firebaseCollection(window.firebaseDB, 'queue');
                 const q = window.firebaseQuery(
                     queueRef,
                     window.firebaseWhere('userId', '!=', currentUser.id),
-                    window.firebaseLimit(10)
+                    window.firebaseLimit(5)
                 );
                 
                 const snapshot = await window.firebaseGetDocs(q);
-                console.log('Queue snapshot size:', snapshot.size);
+                console.log('Queue size:', snapshot.size);
                 
-                if (snapshot.empty) {
-                    console.log('No users in queue, waiting...');
-                    return;
+                if (!snapshot.empty) {
+                    const partner = snapshot.docs[0].data();
+                    console.log('Found partner:', partner.displayName);
+                    await createMatchSimple(partner);
                 }
-                
-                // Sort by timestamp in JavaScript to avoid index requirement
-                const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                users.sort((a, b) => a.timestamp - b.timestamp);
-                
-                const stranger = users[0];
-                console.log('Found stranger:', stranger.displayName, stranger.userId);
-                
-                // Try to create match
-                await createMatch(stranger);
-                
             } catch (error) {
-                console.error('=== ERROR in findAndMatch ===:', error);
+                console.error('ERROR checking for partner:', error);
             }
         }
         
-        // Create match
-        async function createMatch(stranger) {
-            try {
-                const matchId = 'match_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                console.log('=== Creating match ===');
-                console.log('Match ID:', matchId);
-                console.log('Users:', currentUser.id, 'and', stranger.userId);
-                
-                // Create match document
-                await window.firebaseSetDoc(
-                    window.firebaseDoc(window.firebaseDB, 'matches', matchId),
-                    {
-                        id: matchId,
-                        users: [currentUser.id, stranger.userId],
-                        createdAt: Date.now(),
-                        status: 'active'
-                    }
-                );
-                console.log('Match document created');
-                
-                // Update both users
-                await window.firebaseUpdateDoc(
-                    window.firebaseDoc(window.firebaseDB, 'users', currentUser.id),
-                    { currentMatch: matchId, status: 'connected' }
-                );
-                console.log('Current user updated');
-                
-                await window.firebaseUpdateDoc(
-                    window.firebaseDoc(window.firebaseDB, 'users', stranger.userId),
-                    { currentMatch: matchId, status: 'connected' }
-                );
-                console.log('Stranger user updated');
-                
-                // Remove both from queue
-                await window.firebaseDeleteDoc(window.firebaseDoc(window.firebaseDB, 'queue', currentUser.id));
-                console.log('Current user removed from queue');
-                
-                await window.firebaseDeleteDoc(window.firebaseDoc(window.firebaseDB, 'queue', stranger.userId));
-                console.log('Stranger removed from queue');
-                
-                console.log('=== Match created successfully ===');
-                
-                // Clear interval
-                clearInterval(matchCheckInterval);
-                
-                // Set current match
-                currentMatch = {
-                    id: matchId,
-                    users: [currentUser.id, stranger.userId],
-                    partner: stranger
-                };
-                console.log('Current match set:', currentMatch);
-                
-                isSearching = false;
-                
-                // Update UI
-                updatePartnerInfo(stranger);
-                document.getElementById('partnerOnlineDot').style.background = '#22c55e';
-                listenForMessages(matchId);
-                listenForPartnerPresence(stranger.userId);
-                
-                showToast(`Connected with ${stranger.displayName}!`, 'success');
-                
-            } catch (error) {
-                console.error('=== ERROR creating match ===:', error);
-            }
-        }
-        
-        // Listen for being matched by someone else
-        function listenForBeingMatched() {
-            console.log('Watching for match...');
-            const userDocRef = window.firebaseDoc(window.firebaseDB, 'users', currentUser.id);
+        // Listen for match on user document
+        function listenForMatchOnUserDoc() {
+            console.log('Listening for match on user doc');
+            const userRef = window.firebaseDoc(window.firebaseDB, 'users', currentUser.id);
             
-            beingMatchedUnsubscribe = window.firebaseOnSnapshot(userDocRef, async (snapshot) => {
-                const userData = snapshot.data();
-                
-                if (userData.currentMatch && !currentMatch) {
-                    console.log('Matched by someone! Match ID:', userData.currentMatch);
+            beingMatchedUnsubscribe = window.firebaseOnSnapshot(userRef, async (snapshot) => {
+                const data = snapshot.data();
+                if (data?.currentMatch && !currentMatch) {
+                    console.log('=== MATCHED BY SOMEONE ===');
+                    console.log('Match ID:', data.currentMatch);
                     
-                    // Get match details
-                    const matchDoc = await window.firebaseGetDoc(window.firebaseDoc(window.firebaseDB, 'matches', userData.currentMatch));
+                    const matchDoc = await window.firebaseGetDoc(window.firebaseDoc(window.firebaseDB, 'matches', data.currentMatch));
                     const matchData = matchDoc.data();
                     
-                    // Find partner
                     const partnerId = matchData.users.find(id => id !== currentUser.id);
                     const partnerDoc = await window.firebaseGetDoc(window.firebaseDoc(window.firebaseDB, 'users', partnerId));
                     const partner = partnerDoc.data();
                     
-                    // Set current match
+                    clearInterval(matchCheckInterval);
+                    isSearching = false;
+                    
                     currentMatch = {
                         id: matchData.id,
                         users: matchData.users,
                         partner: partner
                     };
                     
-                    // Clear interval
-                    clearInterval(matchCheckInterval);
-                    isSearching = false;
-                    
                     // Update UI
-                    updatePartnerInfo(partner);
+                    document.getElementById('partnerName').textContent = partner.displayName;
+                    document.getElementById('partnerStatus').textContent = 'Connected';
                     document.getElementById('partnerOnlineDot').style.background = '#22c55e';
+                    
                     listenForMessages(matchData.id);
-                    listenForPartnerPresence(partnerId);
                     
                     // Remove from queue
                     try {
@@ -1014,6 +940,61 @@
                 }
             });
         }
+        
+        // Create match - simplified
+        async function createMatchSimple(partner) {
+            try {
+                const matchId = 'match_' + Date.now();
+                console.log('=== CREATING MATCH ===');
+                console.log('Match ID:', matchId);
+                console.log('With:', partner.displayName);
+                
+                // Create match
+                await window.firebaseSetDoc(
+                    window.firebaseDoc(window.firebaseDB, 'matches', matchId),
+                    { id: matchId, users: [currentUser.id, partner.userId], createdAt: Date.now() }
+                );
+                
+                // Update both users
+                await window.firebaseUpdateDoc(
+                    window.firebaseDoc(window.firebaseDB, 'users', currentUser.id),
+                    { currentMatch: matchId }
+                );
+                
+                await window.firebaseUpdateDoc(
+                    window.firebaseDoc(window.firebaseDB, 'users', partner.userId),
+                    { currentMatch: matchId }
+                );
+                
+                // Remove from queue
+                await window.firebaseDeleteDoc(window.firebaseDoc(window.firebaseDB, 'queue', currentUser.id));
+                await window.firebaseDeleteDoc(window.firebaseDoc(window.firebaseDB, 'queue', partner.userId));
+                
+                console.log('✓ Match created');
+                
+                clearInterval(matchCheckInterval);
+                isSearching = false;
+                
+                currentMatch = {
+                    id: matchId,
+                    users: [currentUser.id, partner.userId],
+                    partner: partner
+                };
+                
+                // Update UI
+                document.getElementById('partnerName').textContent = partner.displayName;
+                document.getElementById('partnerStatus').textContent = 'Connected';
+                document.getElementById('partnerOnlineDot').style.background = '#22c55e';
+                
+                listenForMessages(matchId);
+                
+                showToast(`Connected with ${partner.displayName}!`, 'success');
+                
+            } catch (error) {
+                console.error('ERROR creating match:', error);
+            }
+        }
+        
         
         // Update Partner Info
         function updatePartnerInfo(partner) {
