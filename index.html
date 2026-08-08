@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="description" content="Anonymous Chat - Connect with strangers worldwide in real-time">
     <meta name="keywords" content="anonymous chat, random chat, stranger chat, omegle alternative">
+    <meta name="theme-color" content="#0f0f1a">
     <title>Hello World - Anonymous Random Chat</title>
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -78,6 +79,8 @@
             min-height: 100vh;
             overflow-x: hidden;
             color: white;
+            -webkit-overflow-scrolling: touch;
+            touch-action: manipulation;
         }
         
         /* Animated Background */
@@ -89,6 +92,7 @@
             height: 100%;
             z-index: -1;
             background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+            pointer-events: none;
         }
         
         .animated-bg::before {
@@ -224,6 +228,29 @@
         @keyframes onlinePulse {
             0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
             50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+        }
+        
+        /* Owner Badge */
+        .owner-badge {
+            background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+            color: #000;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 2px 10px rgba(255, 215, 0, 0.4);
+        }
+        
+        .owner-crown {
+            font-size: 0.9rem;
+        }
+        
+        .owner-profile {
+            background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
         }
         
         /* Custom Scrollbar */
@@ -379,6 +406,38 @@
             .chat-bubble {
                 max-width: 85%;
             }
+            
+            #chatScreen {
+                height: 100vh;
+                max-width: 100%;
+            }
+            
+            .glass-card {
+                margin: 10px;
+                padding: 15px;
+            }
+            
+            #chatMessages {
+                padding: 10px;
+            }
+            
+            .gradient-btn {
+                padding: 10px 20px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                font-size: 14px;
+            }
+            
+            #partnerName {
+                font-size: 1rem;
+            }
+            
+            #partnerStatus {
+                font-size: 0.75rem;
+            }
         }
     </style>
 </head>
@@ -470,7 +529,12 @@
                             <i class="bi bi-person-fill fs-4 text-white"></i>
                         </div>
                         <div>
-                            <h3 id="partnerName" class="fw-semibold mb-0">Stranger</h3>
+                            <div class="d-flex align-items-center gap-2">
+                                <h3 id="partnerName" class="fw-semibold mb-0">Stranger</h3>
+                                <span id="ownerBadge" class="owner-badge d-none">
+                                    <i class="bi bi-crown-fill owner-crown"></i> Owner
+                                </span>
+                            </div>
                             <div class="d-flex align-items-center gap-2">
                                 <div id="partnerOnlineDot" class="online-dot"></div>
                                 <span id="partnerStatus" class="small text-secondary">Online</span>
@@ -601,22 +665,23 @@
             initApp();
         });
         
-        // Global variables
+        // Global Variables
         let currentUser = null;
         let currentMatch = null;
-        let matchUnsubscribe = null;
+        let isSearching = false;
+        let matchCheckInterval = null;
         let messagesUnsubscribe = null;
         let beingMatchedUnsubscribe = null;
-        let matchCheckInterval = null;
-        let typingTimeout = null;
-        let presenceUnsubscribe = null;
-        let partnerPresenceUnsubscribe = null;
         let onlineCountUnsubscribe = null;
-        let isSearching = false;
-        let mediaRecorder = null;
-        let audioChunks = [];
+        let partnerPresenceUnsubscribe = null;
+        let typingTimeout = null;
         let recordingStartTime = null;
         let recordingInterval = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        
+        // Owner ID - Replace with your actual user ID from localStorage after first login
+        let OWNER_ID = localStorage.getItem('owner_id') || null;
         
         // DOM Elements
         const splashScreen = document.getElementById('splashScreen');
@@ -741,13 +806,22 @@
             const userId = generateUserId();
             console.log('Generated user ID:', userId);
             
+            // Check if this is the owner (first time setup)
+            const isOwner = !OWNER_ID;
+            if (isOwner) {
+                OWNER_ID = userId;
+                localStorage.setItem('owner_id', userId);
+                console.log('✓ Set as owner:', userId);
+            }
+            
             const user = {
                 id: userId,
                 displayName: displayName,
                 status: 'offline',
                 createdAt: Date.now(),
                 lastSeen: Date.now(),
-                currentMatch: null
+                currentMatch: null,
+                isOwner: isOwner
             };
 
             try {
@@ -762,7 +836,12 @@
                 localStorage.setItem('anonchat_user', JSON.stringify(user));
                 console.log('✓ User saved to localStorage');
                 
-                showToast('Profile created!', 'success');
+                if (isOwner) {
+                    showToast('Welcome, Owner! 👑', 'success');
+                } else {
+                    showToast('Profile created!', 'success');
+                }
+                
                 showChatScreen();
                 startSearchingInBackground();
             } catch (error) {
@@ -890,7 +969,8 @@
                 if (!snapshot.empty) {
                     const partner = snapshot.docs[0].data();
                     console.log('Found partner:', partner.displayName);
-                    await createMatchSimple(partner);
+                    // Use requestAnimationFrame to prevent blocking on mobile
+                    requestAnimationFrame(() => createMatchSimple(partner));
                 }
             } catch (error) {
                 console.error('ERROR checking for partner:', error);
@@ -924,10 +1004,21 @@
                         partner: partner
                     };
                     
-                    // Update UI
+                    // Update UI - show "Connected with username"
                     document.getElementById('partnerName').textContent = partner.displayName;
-                    document.getElementById('partnerStatus').textContent = 'Connected';
+                    document.getElementById('partnerStatus').textContent = `Connected with ${partner.displayName}`;
                     document.getElementById('partnerOnlineDot').style.background = '#22c55e';
+                    
+                    // Show owner badge for partner if they are owner
+                    const partnerProfile = document.getElementById('partnerProfile');
+                    const ownerBadge = document.getElementById('ownerBadge');
+                    if (partner.isOwner) {
+                        partnerProfile.classList.add('owner-profile');
+                        ownerBadge.classList.remove('d-none');
+                    } else {
+                        partnerProfile.classList.remove('owner-profile');
+                        ownerBadge.classList.add('d-none');
+                    }
                     
                     listenForMessages(matchData.id);
                     
@@ -981,10 +1072,21 @@
                     partner: partner
                 };
                 
-                // Update UI
+                // Update UI - show "Connected with username"
                 document.getElementById('partnerName').textContent = partner.displayName;
-                document.getElementById('partnerStatus').textContent = 'Connected';
+                document.getElementById('partnerStatus').textContent = `Connected with ${partner.displayName}`;
                 document.getElementById('partnerOnlineDot').style.background = '#22c55e';
+                
+                // Show owner badge for partner if they are owner
+                const partnerProfile = document.getElementById('partnerProfile');
+                const ownerBadge = document.getElementById('ownerBadge');
+                if (partner.isOwner) {
+                    partnerProfile.classList.add('owner-profile');
+                    ownerBadge.classList.remove('d-none');
+                } else {
+                    partnerProfile.classList.remove('owner-profile');
+                    ownerBadge.classList.add('d-none');
+                }
                 
                 listenForMessages(matchId);
                 
@@ -1133,16 +1235,18 @@
                     seen: false
                 };
                 
+                // Add message to Firestore
                 await window.firebaseAddDoc(
                     window.firebaseCollection(window.firebaseDB, 'messages'),
                     message
                 );
                 
-                console.log('Message sent successfully');
+                console.log('✓ Message sent');
                 input.value = '';
+                input.focus();
             } catch (error) {
-                console.error('Error sending message:', error);
-                showToast('Failed to send message: ' + error.message, 'error');
+                console.error('❌ Error sending message:', error);
+                showToast('Failed to send: ' + error.message, 'error');
             }
         }
         
@@ -1258,6 +1362,7 @@
             console.log('Next clicked');
             if (currentMatch) {
                 const partnerName = currentMatch.partner?.displayName || 'Stranger';
+                document.getElementById('partnerStatus').textContent = `${partnerName} disconnected`;
                 showToast(`${partnerName} disconnected`, 'info');
                 endCurrentMatch();
             }
@@ -1270,6 +1375,7 @@
             console.log('Stop clicked');
             if (currentMatch) {
                 const partnerName = currentMatch.partner?.displayName || 'Stranger';
+                document.getElementById('partnerStatus').textContent = `${partnerName} disconnected`;
                 showToast(`${partnerName} disconnected`, 'info');
                 endCurrentMatch();
             }
