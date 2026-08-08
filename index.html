@@ -866,7 +866,8 @@
             }
             
             try {
-                console.log('Looking for partner...');
+                console.log('=== Looking for partner ===');
+                console.log('Current user ID:', currentUser.id);
                 
                 // Get all users in queue except self (without orderBy to avoid index requirement)
                 const queueRef = window.firebaseCollection(window.firebaseDB, 'queue');
@@ -877,10 +878,11 @@
                 );
                 
                 const snapshot = await window.firebaseGetDocs(q);
-                console.log('Queue has:', snapshot.size, 'users');
+                console.log('Queue snapshot size:', snapshot.size);
                 
                 if (snapshot.empty) {
-                    return; // No one else in queue
+                    console.log('No users in queue, waiting...');
+                    return;
                 }
                 
                 // Sort by timestamp in JavaScript to avoid index requirement
@@ -888,13 +890,13 @@
                 users.sort((a, b) => a.timestamp - b.timestamp);
                 
                 const stranger = users[0];
-                console.log('Found:', stranger.displayName, stranger.userId);
+                console.log('Found stranger:', stranger.displayName, stranger.userId);
                 
                 // Try to create match
                 await createMatch(stranger);
                 
             } catch (error) {
-                console.error('Error in findAndMatch:', error);
+                console.error('=== ERROR in findAndMatch ===:', error);
             }
         }
         
@@ -902,7 +904,9 @@
         async function createMatch(stranger) {
             try {
                 const matchId = 'match_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                console.log('Creating match:', matchId);
+                console.log('=== Creating match ===');
+                console.log('Match ID:', matchId);
+                console.log('Users:', currentUser.id, 'and', stranger.userId);
                 
                 // Create match document
                 await window.firebaseSetDoc(
@@ -914,23 +918,29 @@
                         status: 'active'
                     }
                 );
+                console.log('Match document created');
                 
                 // Update both users
                 await window.firebaseUpdateDoc(
                     window.firebaseDoc(window.firebaseDB, 'users', currentUser.id),
                     { currentMatch: matchId, status: 'connected' }
                 );
+                console.log('Current user updated');
                 
                 await window.firebaseUpdateDoc(
                     window.firebaseDoc(window.firebaseDB, 'users', stranger.userId),
                     { currentMatch: matchId, status: 'connected' }
                 );
+                console.log('Stranger user updated');
                 
                 // Remove both from queue
                 await window.firebaseDeleteDoc(window.firebaseDoc(window.firebaseDB, 'queue', currentUser.id));
-                await window.firebaseDeleteDoc(window.firebaseDoc(window.firebaseDB, 'queue', stranger.userId));
+                console.log('Current user removed from queue');
                 
-                console.log('Match created successfully!');
+                await window.firebaseDeleteDoc(window.firebaseDoc(window.firebaseDB, 'queue', stranger.userId));
+                console.log('Stranger removed from queue');
+                
+                console.log('=== Match created successfully ===');
                 
                 // Clear interval
                 clearInterval(matchCheckInterval);
@@ -941,6 +951,7 @@
                     users: [currentUser.id, stranger.userId],
                     partner: stranger
                 };
+                console.log('Current match set:', currentMatch);
                 
                 isSearching = false;
                 
@@ -953,7 +964,7 @@
                 showToast(`Connected with ${stranger.displayName}!`, 'success');
                 
             } catch (error) {
-                console.error('Error creating match:', error);
+                console.error('=== ERROR creating match ===:', error);
             }
         }
         
